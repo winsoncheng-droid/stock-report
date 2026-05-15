@@ -21,7 +21,7 @@ from typing import Optional
 
 # IMPORTANT: SEC EDGAR requires a real User-Agent with your contact info.
 # Replace the email below with yours — they will block generic agents.
-USER_AGENT = "StockReportTool contact@example.com"
+USER_AGENT = "StockReportTool winsoncheng5@gmail.com"
 HEADERS = {"User-Agent": USER_AGENT, "Accept-Encoding": "gzip, deflate"}
 
 # XBRL tag fallback chains — try each in order, use the first one that has data.
