@@ -1,7 +1,9 @@
 """
-SEC EDGAR Annual Financials Fetcher
+SEC EDGAR Annual Financials Fetcher (v2)
+Robust fiscal year extraction using period end dates.
 """
 
+from datetime import date
 import requests
 from typing import Optional
 
@@ -61,11 +63,17 @@ def get_company_facts(cik: str) -> dict:
 
 def get_annual_values(facts: dict, tags: list, unit: str = "USD") -> dict:
     """
-    Collect FY 10-K facts across ALL tags in the fallback chain, then for each
-    fiscal year keep the most recently filed value. This handles companies that:
-      - Switch XBRL tags between filings (e.g. newly public companies like RDDT)
-      - File restatements / amendments
-      - Have historical data tagged differently than current data
+    Robust annual data extraction.
+
+    - Pulls FY 10-K facts across ALL tags in the fallback chain (handles
+      companies that switch tags between filings).
+    - Derives fiscal year from the period END date — NOT from the unreliable
+      `fy` metadata field, which can be wrong for newly public companies,
+      restatements, and unusual filing histories.
+    - Validates period is actually annual (340-380 days) to filter out
+      stub periods, partial years, and quarterly data accidentally tagged FY.
+    - For each fiscal year, keeps the most recently filed value (handles
+      restatements correctly).
     """
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
     all_facts = []
@@ -77,19 +85,30 @@ def get_annual_values(facts: dict, tags: list, unit: str = "USD") -> dict:
         if unit not in units:
             continue
         for f in units[unit]:
-            if (
-                f.get("fp") == "FY"
-                and f.get("form") in ("10-K", "10-K/A")
-                and f.get("fy") is not None
-            ):
-                all_facts.append(f)
+            if f.get("form") not in ("10-K", "10-K/A"):
+                continue
+            if not f.get("start") or not f.get("end") or not f.get("filed"):
+                continue
+            try:
+                start = date.fromisoformat(f["start"])
+                end = date.fromisoformat(f["end"])
+                period_days = (end - start).days
+            except (ValueError, TypeError):
+                continue
+            # Annual periods: ~365 days (allow 52/53-week years)
+            if not (340 <= period_days <= 380):
+                continue
+            # Use end-year as fiscal year (standard convention)
+            fact_copy = dict(f)
+            fact_copy["_fy"] = end.year
+            all_facts.append(fact_copy)
 
     if not all_facts:
         return {}
 
     by_year = {}
     for f in all_facts:
-        fy = f["fy"]
+        fy = f["_fy"]
         if fy not in by_year or f["filed"] > by_year[fy]["filed"]:
             by_year[fy] = f
 
